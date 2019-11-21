@@ -4,8 +4,8 @@
 
 WiFiClientSecure client;
 
-const char* ssid       = "Corp";
-const char* password   = "q1w2e3r4t5y6u7i8o9p0_+";
+const char* ssid       = "NOME_DA_REDE";
+const char* password   = "SENHA_DA_REDE";
 
 String textFix = "GET /forms/d/e/1FAIpQLSe6sF0LCkxhUhvyKjDE6g9TSWzjvbSHDS0h7IaA6rUIkfzGQA/formResponse?ifq&entry.1158105420=";
 String textFix2 = "&entry.131202714=";
