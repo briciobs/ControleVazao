@@ -1,0 +1,158 @@
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include "esp_system.h"
+
+WiFiClientSecure client;
+
+const char* ssid       = "Corp";
+const char* password   = "q1w2e3r4t5y6u7i8o9p0_+";
+
+String textFix = "GET /forms/d/e/1FAIpQLSe6sF0LCkxhUhvyKjDE6g9TSWzjvbSHDS0h7IaA6rUIkfzGQA/formResponse?ifq&entry.1158105420=";
+String textFix2 = "&entry.131202714=";
+String textFix3 = "&entry.1985578585=Masculino";
+String textFix4 = "&entry.833423444=";
+//Essa String sera uma auxiliar contendo o link utilizado pelo GET, para nao precisar ficar re-escrevendo toda hora
+//String textFixo = "GET /forms/d/e/1FAIpQLSd8PJdyvyiknKIywXL_AEUZSr9Y__7xQKbFBIRNkZTrzBD2XQ/formResponse?ifq&entry.378657677=";
+
+
+//---MEDIDOR DE VAZÃO
+int flowPin = 15;
+unsigned long flowCount = 0;
+float vazaoAgua; //Variável para armazenar o valor em L/min
+float aux;
+int tempoDuchaLigada = 0;
+int i = 0;
+
+//---Botão
+int button = 5;
+
+//-Variavel de verificação
+long prevTemp = 0; //VARIÁVEL QUE CONTROLA O TEMPO DE VERIFICAÇÃO
+long intervalo = 600000 ; //VARIÁVEL QUE DETERMINA O INTERVALO DE VERIFICAÇÃO
+
+//WatchDog
+hw_timer_t *timer = NULL;
+
+void IRAM_ATTR resetModule() {
+  ets_printf("reboot\n");
+  esp_restart();
+}
+
+int LED_BUILTIN = 2;
+
+void setup() {
+  Serial.begin(115200);
+
+pinMode(LED_BUILTIN, OUTPUT);
+
+  //Medidor de vazão
+  pinMode(flowPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(flowPin), flow1, FALLING);
+
+  //Botão
+  pinMode(button, INPUT_PULLUP);    // Configura pino 5 como entrada e habilita pull up interno;
+
+  //WatchDog
+  timer = timerBegin(0, 80, true); //timer 0, div 80
+  timerAttachInterrupt(timer, &resetModule, true);
+  timerAlarmWrite(timer, 3600000000, false); //set time in us
+  timerAlarmEnable(timer); //enable interrupt
+
+
+  //Conecta na rede WiFi
+  Serial.printf("Connecting to %s ", ssid);
+  WiFi.begin(ssid, password);
+  WiFi.mode(WIFI_STA);//Habilita o modo estaçao
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println(" CONNECTED");
+  Serial.println(WiFi.localIP());
+}
+
+
+
+
+void loop() {
+
+  timerWrite(timer, 0); //reset timer (feed watchdog)
+
+  //-------------Verifica Conexão e reconecta, caso necessario.
+  unsigned long currentMillis = millis();
+  if (currentMillis - prevTemp > intervalo) {
+    while (WiFi.status() != WL_CONNECTED)    {
+      WiFi.reconnect();
+      delay (1000);
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("Reconectado");
+      }
+    }
+
+    prevTemp = currentMillis; //TEMPO ANTERIOR GUARDA O TEMPO ATUAL
+  }
+  //------------Fim da verificação
+
+
+  // Calcular vazão
+
+if(digitalRead(5) == LOW)
+digitalWrite(LED_BUILTIN, HIGH);
+if(digitalRead(5) != LOW)
+digitalWrite(LED_BUILTIN, LOW);
+ 
+  while (digitalRead(5) == LOW) {
+    vazaoAgua = flowCount / 6.6 ; //Converte para Litros/minuto
+    aux = flowCount;
+    delay(1000);
+    i++;
+    if (flowCount != aux) { //Tempo de ducha aberta
+      tempoDuchaLigada ++;
+    }
+
+  }
+
+  if (vazaoAgua > 0) {
+    //Tenta se conectar ao servidor do Google docs na porta 443 (HTTPS)
+    if (client.connect("docs.google.com", 443) == 1) {
+
+      //envia informação para planilha
+      String toSend = textFix;//Atribuimos a String auxiliar na nova String que sera enviada
+      toSend += vazaoAgua;//Adiciona valor a ser enviado
+      toSend += textFix2;//Atribuimos a String auxiliar na nova String que sera enviada
+      toSend += i;
+      toSend += textFix3;
+      toSend += textFix4;
+      toSend += tempoDuchaLigada;
+      toSend += "&submit=Submit HTTP/1.1";//Completamos o metodo GET para nosso formulario.
+
+      client.println(toSend);//Enviamos o GET ao servidor-
+      client.println("Host: www.docs.google.com");
+      client.println();
+      client.stop();//Encerramos a conexao com o servidor
+      i = 0;
+      tempoDuchaLigada = 0;
+      vazaoAgua = 0;
+      flowCount = 0;
+    }
+
+    else {
+      Serial.println("Erro ao se conectar");//Se nao for possivel conectar no servidor, ira avisar no monitor.}
+      delay(1000);
+    }
+
+    delay(1000);
+  }
+
+  if (vazaoAgua <= 0) {
+    i = 0;
+    vazaoAgua = 0;
+    flowCount = 0;
+    delay(1000);
+  }
+}
+
+void flow1() {
+  flowCount += 1;
+}
